@@ -1,7 +1,8 @@
 "use client"
 
 import type React from "react"
-
+import { useAuth } from "@/lib/auth-context"
+import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,6 +10,8 @@ import { Card } from "@/components/ui/card"
 import { Lightbulb, TrendingUp, Shield, User, Mail, Lock, Calendar } from "lucide-react"
 
 export default function LandingPage() {
+  const { login, register } = useAuth()
+  const router = useRouter()
   const [isSignUp, setIsSignUp] = useState(false)
   const [formData, setFormData] = useState({
     fullName: "",
@@ -25,11 +28,24 @@ export default function LandingPage() {
     })
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // TODO: Implement authentication logic
-    // For now, redirect to dashboard
-    window.location.href = "/dashboard"
+    try {
+      if (isSignUp) {
+        await register({
+          fullName: formData.fullName,
+          email: formData.email,
+          age: Number.parseInt(formData.age),
+          password: formData.password,
+        })
+      } else {
+        await login(formData.email, formData.password)
+      }
+      router.push("/dashboard")
+    } catch (error) {
+      console.error("Authentication error:", error)
+      // Handle error (show toast, etc.)
+    }
   }
 
   const features = [

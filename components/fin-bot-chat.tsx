@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Bot, Send, User, TrendingUp, Target, CreditCard, PieChart, Lightbulb } from "lucide-react"
+import { apiClient } from "@/lib/api-client"
 
 interface ChatMessage {
   id: string
@@ -42,124 +43,7 @@ export default function FinBotChat({ collapsed }: FinBotChatProps) {
     { icon: CreditCard, label: "Budget Status", query: "What's my current budget status?" },
   ]
 
-  const financialResponses = {
-    "spending summary": {
-      message: "Based on your recent transactions, here's your spending breakdown for this month:",
-      data: {
-        total: 95000,
-        categories: [
-          { name: "Food & Dining", amount: 35000, percentage: 37 },
-          { name: "Shopping", amount: 25000, percentage: 26 },
-          { name: "Transportation", amount: 15000, percentage: 16 },
-          { name: "Bills & Utilities", amount: 18000, percentage: 19 },
-          { name: "Entertainment", amount: 2000, percentage: 2 },
-        ],
-      },
-      suggestions: ["How can I reduce dining expenses?", "Set a shopping budget", "View detailed transactions"],
-    },
-    "financial goals": {
-      message: "Here's your current goal progress:",
-      data: {
-        goals: [
-          { name: "Emergency Fund", progress: 50, target: 300000, current: 150000 },
-          { name: "Vacation", progress: 31, target: 80000, current: 25000 },
-          { name: "New Laptop", progress: 75, target: 60000, current: 45000 },
-        ],
-      },
-      suggestions: ["Increase emergency fund contribution", "Set up auto-transfer", "Create new goal"],
-    },
-    "savings tips": {
-      message: "Based on your spending patterns, here are personalized savings tips:",
-      data: {
-        tips: [
-          "You've been spending 37% on dining. Try cooking at home 2-3 times a week to save ₹8,000/month.",
-          "Consider switching to a monthly metro pass instead of daily tickets to save ₹2,500/month.",
-          "Your entertainment spending is low - great job maintaining discipline!",
-          "Set up automatic transfers of ₹10,000 to your emergency fund right after salary credit.",
-        ],
-      },
-      suggestions: ["Create a meal plan", "Set spending alerts", "Automate savings"],
-    },
-    "budget status": {
-      message: "Here's your current budget performance:",
-      data: {
-        totalBudget: 90000,
-        totalSpent: 95000,
-        status: "over",
-        categories: [
-          { name: "Food & Dining", budget: 40000, spent: 35000, status: "under" },
-          { name: "Shopping", budget: 20000, spent: 25000, status: "over" },
-          { name: "Transportation", budget: 12000, spent: 15000, status: "over" },
-        ],
-      },
-      suggestions: ["Adjust shopping budget", "Review transportation costs", "Set spending alerts"],
-    },
-  }
-
-  const generateBotResponse = (userMessage: string): ChatMessage => {
-    const lowerMessage = userMessage.toLowerCase()
-
-    if (lowerMessage.includes("spending") || lowerMessage.includes("summary")) {
-      return {
-        id: Date.now().toString(),
-        type: "bot",
-        message: financialResponses["spending summary"].message,
-        timestamp: new Date(),
-        data: financialResponses["spending summary"].data,
-        suggestions: financialResponses["spending summary"].suggestions,
-      }
-    }
-
-    if (lowerMessage.includes("goal") || lowerMessage.includes("progress")) {
-      return {
-        id: Date.now().toString(),
-        type: "bot",
-        message: financialResponses["financial goals"].message,
-        timestamp: new Date(),
-        data: financialResponses["financial goals"].data,
-        suggestions: financialResponses["financial goals"].suggestions,
-      }
-    }
-
-    if (lowerMessage.includes("save") || lowerMessage.includes("tip")) {
-      return {
-        id: Date.now().toString(),
-        type: "bot",
-        message: financialResponses["savings tips"].message,
-        timestamp: new Date(),
-        data: financialResponses["savings tips"].data,
-        suggestions: financialResponses["savings tips"].suggestions,
-      }
-    }
-
-    if (lowerMessage.includes("budget")) {
-      return {
-        id: Date.now().toString(),
-        type: "bot",
-        message: financialResponses["budget status"].message,
-        timestamp: new Date(),
-        data: financialResponses["budget status"].data,
-        suggestions: financialResponses["budget status"].suggestions,
-      }
-    }
-
-    // Default responses for common queries
-    const defaultResponses = [
-      "I understand you're asking about your finances. Let me analyze your data and provide insights.",
-      "That's a great question! Based on your spending patterns, I can help you make better financial decisions.",
-      "I'm here to help you achieve your financial goals. Let me provide some personalized recommendations.",
-    ]
-
-    return {
-      id: Date.now().toString(),
-      type: "bot",
-      message: defaultResponses[Math.floor(Math.random() * defaultResponses.length)],
-      timestamp: new Date(),
-      suggestions: ["Show spending breakdown", "Budget recommendations", "Goal tracking help"],
-    }
-  }
-
-  const handleSendMessage = (message?: string) => {
+  const handleSendMessage = async (message?: string) => {
     const messageToSend = message || inputMessage.trim()
     if (!messageToSend) return
 
@@ -175,12 +59,32 @@ export default function FinBotChat({ collapsed }: FinBotChatProps) {
     setInputMessage("")
     setIsTyping(true)
 
-    // Simulate bot response delay
-    setTimeout(() => {
-      const botResponse = generateBotResponse(messageToSend)
+    try {
+      const response = await apiClient.chatWithFinBot(messageToSend)
+
+      const botResponse: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        type: "bot",
+        message: response.message,
+        timestamp: new Date(),
+        data: response.data,
+        suggestions: response.suggestions,
+      }
+
       setMessages((prev) => [...prev, botResponse])
+    } catch (error) {
+      console.error("FinBot error:", error)
+      const errorResponse: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        type: "bot",
+        message: "I'm having trouble processing your request right now. Please try again later.",
+        timestamp: new Date(),
+        suggestions: ["Show spending summary", "How can I save more?", "Track my goals"],
+      }
+      setMessages((prev) => [...prev, errorResponse])
+    } finally {
       setIsTyping(false)
-    }, 1500)
+    }
   }
 
   const handleSuggestionClick = (suggestion: string) => {
