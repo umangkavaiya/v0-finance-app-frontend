@@ -1,34 +1,22 @@
 import { NextResponse } from "next/server"
-import { prisma } from "@/lib/db"
+import { getDb, users } from "@/lib/db"
 
 export async function GET() {
   try {
-    console.log("[v0] Testing database connection...")
-
-    // Test database connection
-    await prisma.$connect()
-    console.log("[v0] Database connected successfully")
-
-    // Test if tables exist by trying to count users
-    const userCount = await prisma.user.count()
-    console.log("[v0] User count:", userCount)
-
-    return NextResponse.json({
-      status: "success",
-      message: "Database connection successful",
-      userCount,
-    })
+    console.log("[v0] Testing MongoDB connection...")
+    const db = await getDb()
+    const count = await users(db).countDocuments()
+    console.log("[v0] MongoDB connected. Users:", count)
+    return NextResponse.json({ status: "success", message: "MongoDB connection successful", userCount: count })
   } catch (error) {
-    console.error("[v0] Database connection error:", error)
+    console.error("[v0] MongoDB connection error:", error)
     return NextResponse.json(
       {
         status: "error",
-        message: "Database connection failed",
-        error: error instanceof Error ? error.message : "Unknown error",
+        message: "MongoDB connection failed",
+        error: error instanceof Error ? error.message : "Unknown",
       },
       { status: 500 },
     )
-  } finally {
-    await prisma.$disconnect()
   }
 }

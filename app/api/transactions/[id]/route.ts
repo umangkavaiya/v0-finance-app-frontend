@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/db"
 import { getUserFromRequest } from "@/lib/auth"
+import { getDb, transactions as trxCol, toObjectId, withId } from "@/lib/db"
 import { z } from "zod"
 
 const updateTransactionSchema = z.object({
@@ -16,23 +16,14 @@ const updateTransactionSchema = z.object({
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const user = getUserFromRequest(request)
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   try {
-    const transaction = await prisma.transaction.findFirst({
-      where: {
-        id: params.id,
-        userId: user.userId,
-      },
-    })
-
-    if (!transaction) {
-      return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
-    }
-
-    return NextResponse.json({ transaction })
+    const db = await getDb()
+    const col = trxCol(db)
+    const doc = await col.findOne({ _id: toObjectId(params.id), userId: user.userId })
+    if (!doc) return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
+    return NextResponse.json({ transaction: withId(doc) })
   } catch (error) {
     console.error("Get transaction error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -41,36 +32,24 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   const user = getUserFromRequest(request)
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   try {
     const body = await request.json()
-    const validatedData = updateTransactionSchema.parse(body)
+    const validated = updateTransactionSchema.parse(body)
 
-    const transaction = await prisma.transaction.updateMany({
-      where: {
-        id: params.id,
-        userId: user.userId,
-      },
-      data: validatedData,
-    })
+    const db = await getDb()
+    const col = trxCol(db)
 
-    if (transaction.count === 0) {
-      return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
-    }
+    const res = await col.updateOne({ _id: toObjectId(params.id), userId: user.userId }, { $set: validated })
+    if (res.matchedCount === 0) return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
 
-    const updatedTransaction = await prisma.transaction.findUnique({
-      where: { id: params.id },
-    })
-
-    return NextResponse.json({ transaction: updatedTransaction, message: "Transaction updated successfully" })
+    const updated = await col.findOne({ _id: toObjectId(params.id) })
+    return NextResponse.json({ transaction: withId(updated!), message: "Transaction updated successfully" })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Validation failed", details: error.errors }, { status: 400 })
     }
-
     console.error("Update transaction error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
@@ -78,22 +57,13 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   const user = getUserFromRequest(request)
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   try {
-    const transaction = await prisma.transaction.deleteMany({
-      where: {
-        id: params.id,
-        userId: user.userId,
-      },
-    })
-
-    if (transaction.count === 0) {
-      return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
-    }
-
+    const db = await getDb()
+    const col = trxCol(db)
+    const res = await col.deleteOne({ _id: toObjectId(params.id), userId: user.userId })
+    if (res.deletedCount === 0) return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
     return NextResponse.json({ message: "Transaction deleted successfully" })
   } catch (error) {
     console.error("Delete transaction error:", error)

@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/db"
 import { getUserFromRequest } from "@/lib/auth"
+import { getDb, users as usersCol, withId } from "@/lib/db"
 import { z } from "zod"
 
 const updateSettingsSchema = z.object({
@@ -12,28 +12,19 @@ const updateSettingsSchema = z.object({
 
 export async function GET(request: NextRequest) {
   const user = getUserFromRequest(request)
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   try {
-    const userProfile = await prisma.user.findUnique({
-      where: { id: user.userId },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        age: true,
-        currency: true,
-        timezone: true,
-        createdAt: true,
-      },
+    const db = await getDb()
+    const col = usersCol(db)
+    const doc = await col.findOne({ _id: new (await import("mongodb")).ObjectId(user.userId) }).catch(async () => {
+      // fallback: lookup by stored id string to keep compatibility
+      return await col.findOne({ id: user.userId })
     })
 
-    if (!userProfile) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 })
-    }
-
+    // If we didn't store ObjectId as id, try email-based lookup via token flows (optional)
+    const userProfile = doc ? withId(doc) : null
+    if (!userProfile) return NextResponse.json({ error: "User not found" }, { status: 404 })
     return NextResponse.json({ user: userProfile })
   } catch (error) {
     console.error("Get settings error:", error)
@@ -43,34 +34,22 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   const user = getUserFromRequest(request)
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   try {
     const body = await request.json()
-    const validatedData = updateSettingsSchema.parse(body)
+    const validated = updateSettingsSchema.parse(body)
 
-    const updatedUser = await prisma.user.update({
-      where: { id: user.userId },
-      data: validatedData,
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        age: true,
-        currency: true,
-        timezone: true,
-        createdAt: true,
-      },
-    })
-
-    return NextResponse.json({ user: updatedUser, message: "Settings updated successfully" })
+    const db = await getDb()
+    const col = usersCol(db)
+    const { ObjectId } = await import("mongodb")
+    await col.updateOne({ _id: new ObjectId(user.userId) }, { $set: validated })
+    const updated = await col.findOne({ _id: new ObjectId(user.userId) })
+    return NextResponse.json({ user: withId(updated!), message: "Settings updated successfully" })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Validation failed", details: error.errors }, { status: 400 })
     }
-
     console.error("Update settings error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }

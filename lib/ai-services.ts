@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
-import type { Transaction } from "@prisma/client"
+import type { TransactionDoc, GoalDoc } from "@/lib/db"
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "")
 
@@ -66,10 +66,12 @@ export async function categorizeTransaction(description: string): Promise<{ cate
 }
 
 // AI Financial Insights Generator
-export async function generateInsights(transactions: Transaction[]): Promise<string[]> {
+export async function generateInsights(transactions: TransactionDoc[]): Promise<string[]> {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-pro" })
-    const prompt = `You are FinBuddy, an expert financial advisor. Analyze the user's following transactions: ${JSON.stringify(transactions.slice(0, 50))}. Provide three short, personalized, and actionable insights. One should be positive encouragement, one a warning or area for improvement, and one a helpful suggestion. Return the response as a JSON array of strings. For example: ["Great job reducing your shopping spend this month!", "Your transportation costs are trending 20% higher. Consider looking for alternatives.", "You could reach your 'Vacation' goal 2 months faster by allocating an extra ₹5,000 per month."]`
+    const prompt = `You are FinBuddy, an expert financial advisor. Analyze the user's following transactions: ${JSON.stringify(
+      transactions.slice(0, 50),
+    )}. Provide three short, personalized, and actionable insights. One should be positive encouragement, one a warning or area for improvement, and one a helpful suggestion. Return the response as a JSON array of strings.`
 
     const result = await model.generateContent(prompt)
     const response = await result.response
@@ -105,15 +107,13 @@ export async function generateInsights(transactions: Transaction[]): Promise<str
 export async function processFinBotQuery(
   message: string,
   userId: string,
-  transactions: Transaction[],
-  goals: any[],
+  transactions: TransactionDoc[],
+  goals: GoalDoc[],
 ): Promise<any> {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-pro" })
 
-    // Intent classification
     const intentPrompt = `Classify the user's request into one of the following intents: 'spending_summary', 'goal_progress', 'savings_tips', 'budget_status', or 'general_query'. User request: '${message}'. Return only the intent name as a string.`
-
     const intentResult = await model.generateContent(intentPrompt)
     const intent = (await intentResult.response.text()).trim().toLowerCase()
 
@@ -121,7 +121,7 @@ export async function processFinBotQuery(
     let responseMessage = ""
 
     switch (intent) {
-      case "spending_summary":
+      case "spending_summary": {
         const categoryTotals = transactions.reduce(
           (acc, t) => {
             if (t.type === "debit") {
@@ -137,19 +137,15 @@ export async function processFinBotQuery(
           .map(([name, amount]) => ({
             name,
             amount,
-            percentage: Math.round((amount / totalSpent) * 100),
+            percentage: totalSpent > 0 ? Math.round((amount / totalSpent) * 100) : 0,
           }))
           .sort((a, b) => b.amount - a.amount)
 
-        responseData = {
-          type: "spending_summary",
-          categories,
-          totalSpent,
-        }
+        responseData = { type: "spending_summary", categories, totalSpent }
         responseMessage = `Here's your spending summary. You've spent ₹${totalSpent.toLocaleString()} this month across ${categories.length} categories.`
         break
-
-      case "goal_progress":
+      }
+      case "goal_progress": {
         const activeGoals = goals.filter((g) => g.status === "active")
         responseData = {
           type: "goal_progress",
@@ -161,12 +157,13 @@ export async function processFinBotQuery(
         }
         responseMessage = `You have ${activeGoals.length} active goals. Here's your progress overview.`
         break
-
-      default:
+      }
+      default: {
         const generalPrompt = `You are FinBuddy, a helpful financial assistant. Answer this question: "${message}". Keep the response concise and helpful.`
         const generalResult = await model.generateContent(generalPrompt)
         responseMessage = await generalResult.response.text()
         responseData = { type: "general_query" }
+      }
     }
 
     return {

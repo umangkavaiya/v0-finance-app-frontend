@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/db"
 import { getUserFromRequest } from "@/lib/auth"
+import { getDb, goals as goalsCol, withId, manyWithId } from "@/lib/db"
 import { z } from "zod"
 
 const goalSchema = z.object({
@@ -16,17 +16,13 @@ const goalSchema = z.object({
 
 export async function GET(request: NextRequest) {
   const user = getUserFromRequest(request)
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   try {
-    const goals = await prisma.goal.findMany({
-      where: { userId: user.userId },
-      orderBy: { createdAt: "desc" },
-    })
-
-    return NextResponse.json({ goals })
+    const db = await getDb()
+    const col = goalsCol(db)
+    const items = await col.find({ userId: user.userId }).sort({ createdAt: -1 }).toArray()
+    return NextResponse.json({ goals: manyWithId(items) })
   } catch (error) {
     console.error("Get goals error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -35,27 +31,28 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const user = getUserFromRequest(request)
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   try {
     const body = await request.json()
-    const validatedData = goalSchema.parse(body)
+    const validated = goalSchema.parse(body)
 
-    const goal = await prisma.goal.create({
-      data: {
-        ...validatedData,
-        userId: user.userId,
-      },
-    })
-
-    return NextResponse.json({ goal, message: "Goal created successfully" })
+    const db = await getDb()
+    const col = goalsCol(db)
+    const doc = {
+      userId: user.userId,
+      ...validated,
+      currentAmount: validated.currentAmount ?? 0,
+      status: "active" as const,
+      createdAt: new Date(),
+    }
+    const res = await col.insertOne(doc)
+    const inserted = await col.findOne({ _id: res.insertedId })
+    return NextResponse.json({ goal: withId(inserted!), message: "Goal created successfully" })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Validation failed", details: error.errors }, { status: 400 })
     }
-
     console.error("Create goal error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
